@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import {
     liveSkip,
@@ -76,12 +76,25 @@ Deno.test({
     name: "fundable#deals/{id} live (gated on FUNDABLE_API_KEY)",
     ignore: liveSkip("fundable"),
     fn: async () => {
+        // resolve a deal that exists live (the replay UUID is synthetic):
+        // one row from the deals search, then fetch it by id
+        const search = await runEndpoint({
+            unit: await testSealedUnit("fundable#deals"),
+            input: { body: { page_size: 1 } },
+            mode: "live",
+        });
+        assertEquals(
+            search.isProviderError,
+            false,
+            JSON.stringify(search.output),
+        );
+        const deals = (search.output as Record<string, Record<string, unknown>>)
+            .data.deals as Record<string, unknown>[];
+        assert(deals.length > 0, "live deals search returned no rows");
         const unit = await testSealedUnit(ID);
         const result = await runEndpoint({
             unit,
-            input: {
-                pathParams: { id: "cca72384-d735-42f8-99d6-b3e14179c4c1" },
-            },
+            input: { pathParams: { id: String(deals[0].id) } },
             mode: "live",
         });
         assertEquals(
@@ -89,6 +102,15 @@ Deno.test({
             false,
             JSON.stringify(result.output),
         );
-        assertEquals(result.usage.evidence, { CALL: 1 });
+        // shape, not amounts: one CALL line, numeric
+        assertEquals(Object.keys(result.usage.evidence), ["CALL"]);
+        assertEquals(typeof result.usage.evidence.CALL, "number");
+        // shape, not amounts: the vendor envelope carries a data object
+        const body = result.output as Record<string, unknown>;
+        assert(
+            body.data !== null && typeof body.data === "object" &&
+                !Array.isArray(body.data),
+            JSON.stringify(result.output),
+        );
     },
 });

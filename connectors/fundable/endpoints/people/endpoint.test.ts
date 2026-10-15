@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import type { Json } from "@shared/core";
 import { fromFileUrl } from "@std/path";
 import {
@@ -115,5 +115,12 @@ Deno.test({
         assertEquals(Object.keys(result.usage.evidence), ["RESULT"]);
         const output = result.output as Record<string, Record<string, unknown>>;
         assertEquals("credits_used" in output.meta, false);
+        // shape, not amounts: the vendor envelope carries a data object
+        const body = result.output as Record<string, unknown>;
+        assert(
+            body.data !== null && typeof body.data === "object" &&
+                !Array.isArray(body.data),
+            JSON.stringify(result.output),
+        );
     },
 });

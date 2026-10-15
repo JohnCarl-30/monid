@@ -1,6 +1,7 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import {
+    estimateEndpoint,
     liveSkip,
     loadFixture,
     runEndpoint,
@@ -72,6 +73,16 @@ Deno.test("fundable#investor: a non-UUID id is rejected before the wire", async 
     );
 });
 
+Deno.test("fundable#investor: a well-formed UUID id passes the gate (near-twin of the rejection)", async () => {
+    const unit = await testSealedUnit(ID);
+    // the pure estimate validates input with no IO — a flat lookup draws
+    // its one CALL; a too-wide or too-narrow id gate would surface here
+    const usage = await estimateEndpoint(unit, {
+        queryParams: { id: "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b" },
+    });
+    assertEquals(Object.keys(usage.evidence), ["CALL"]);
+});
+
 Deno.test({
     name: "fundable#investor live (gated on FUNDABLE_API_KEY)",
     ignore: liveSkip("fundable"),
@@ -87,6 +98,15 @@ Deno.test({
             false,
             JSON.stringify(result.output),
         );
-        assertEquals(result.usage.evidence, { CALL: 1 });
+        // shape, not amounts: one CALL line, numeric
+        assertEquals(Object.keys(result.usage.evidence), ["CALL"]);
+        assertEquals(typeof result.usage.evidence.CALL, "number");
+        // shape, not amounts: the vendor envelope carries a data object
+        const body = result.output as Record<string, unknown>;
+        assert(
+            body.data !== null && typeof body.data === "object" &&
+                !Array.isArray(body.data),
+            JSON.stringify(result.output),
+        );
     },
 });

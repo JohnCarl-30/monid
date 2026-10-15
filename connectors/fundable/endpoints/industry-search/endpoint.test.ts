@@ -1,6 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import {
+    assertInputAccepted,
     liveSkip,
     loadFixture,
     runEndpoint,
@@ -30,6 +31,48 @@ Deno.test("fundable#industry/search happy (synthetic): free — the vendor's own
     assertEquals(output.meta, {});
 });
 
+Deno.test("fundable#industry/search provider error (synthetic 401): data, zero usage", async () => {
+    const unit = await testSealedUnit(ID);
+    const fixture = await loadFixture(
+        `${fixturesDir}synthetic-provider-error.json`,
+    );
+    const result = await runEndpoint({
+        unit,
+        input: { queryParams: { name: "fintech" } },
+        mode: "replay",
+        fixture,
+    });
+    assertEquals(result.httpStatus, 401);
+    assertEquals(result.isProviderError, true);
+    assertEquals(result.usage, { credits: {}, evidence: {} });
+    assertEquals(
+        (result.output as Record<string, Record<string, unknown>>).error.code,
+        "UNAUTHORIZED",
+    );
+});
+
+Deno.test("fundable#industry/search: an empty name is rejected before the wire; a real name passes", async () => {
+    const unit = await testSealedUnit(ID);
+    const fixture = await loadFixture(`${fixturesDir}synthetic-happy.json`);
+    await assertRejects(
+        () =>
+            runEndpoint({
+                unit,
+                input: { queryParams: { name: "" } },
+                mode: "replay",
+                fixture,
+            }),
+        Error,
+        "INVALID_INPUT",
+    );
+    await assertInputAccepted({
+        unit,
+        input: { queryParams: { name: "fintech" } },
+        mode: "replay",
+        fixture,
+    });
+});
+
 Deno.test({
     name: "fundable#industry/search live (gated on FUNDABLE_API_KEY)",
     ignore: liveSkip("fundable"),
@@ -46,5 +89,12 @@ Deno.test({
             JSON.stringify(result.output),
         );
         assertEquals(result.usage, { credits: {}, evidence: {} });
+        // shape, not amounts: the vendor envelope carries a data object
+        const body = result.output as Record<string, unknown>;
+        assert(
+            body.data !== null && typeof body.data === "object" &&
+                !Array.isArray(body.data),
+            JSON.stringify(result.output),
+        );
     },
 });

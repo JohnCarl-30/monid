@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import {
     liveSkip,
@@ -91,6 +91,15 @@ Deno.test({
             false,
             JSON.stringify(result.output),
         );
-        assertEquals(result.usage.evidence, { CALL: 1 });
+        // shape, not amounts: one CALL line, numeric
+        assertEquals(Object.keys(result.usage.evidence), ["CALL"]);
+        assertEquals(typeof result.usage.evidence.CALL, "number");
+        // shape, not amounts: the vendor envelope carries a data object
+        const body = result.output as Record<string, unknown>;
+        assert(
+            body.data !== null && typeof body.data === "object" &&
+                !Array.isArray(body.data),
+            JSON.stringify(result.output),
+        );
     },
 });
