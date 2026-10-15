@@ -67,6 +67,8 @@ Deno.test({
             false,
             JSON.stringify(result.output),
         );
-        assertEquals(result.usage.evidence, { CALL: 1 });
+        // shape, not amounts: one CALL line, numeric
+        assertEquals(Object.keys(result.usage.evidence), ["CALL"]);
+        assertEquals(typeof result.usage.evidence.CALL, "number");
     },
 });

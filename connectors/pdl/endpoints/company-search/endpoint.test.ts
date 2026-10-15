@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import type { Json } from "@shared/core";
 import { fromFileUrl } from "@std/path";
 import {
@@ -144,5 +144,10 @@ Deno.test({
             JSON.stringify(result.output),
         );
         assertEquals(Object.keys(result.usage.evidence), ["RESULT"]);
+        // shape, not amounts: the records ride a data array
+        assert(
+            Array.isArray((result.output as Record<string, unknown>).data),
+            JSON.stringify(result.output),
+        );
     },
 });
