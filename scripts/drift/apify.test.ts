@@ -321,3 +321,59 @@ Deno.test("checkPricing (D2): pinning only the FIRST of two joined events is a r
     assert(findings[0].message.includes("apify-actor-start + actor_start"));
     assertEquals(repins.map((repin) => repin.live), [0.00006]);
 });
+
+// ---------------------------------------------------------------------------
+// shopee (add-apify-shopee-actors): the detail actor's `reviews` add-on is
+// rejected at the binding, so its event is a reviewed exclusion
+// ---------------------------------------------------------------------------
+
+/** The detail actor's published card (pricingInfo effective 2026-10-21):
+ *  two tiered events and two flat-priced platform events. */
+const shopeeDetailCard = [{
+    startedAt: "2026-06-01T00:00:00.000Z",
+    pricingModel: "PAY_PER_EVENT",
+    pricingPerEvent: {
+        actorChargeEvents: {
+            "result": gold(0.00699),
+            "reviews": gold(0.00299),
+            "apify-default-dataset-item": { eventPriceUsd: 0.00001 },
+            "apify-actor-start": { eventPriceUsd: 0.008 },
+        },
+    },
+}];
+
+const shopeeDetailLines = () =>
+    docWith({
+        actor_start: { kind: "PER_CALL", amount: 0.008 },
+        result: { kind: "PER_UNIT", amount: 0.00699 },
+        default_dataset_item: { kind: "PER_UNIT", amount: 0.00001 },
+    });
+
+Deno.test("checkPricing (shopee): the detail doc's unmodeled `reviews` event is EXCLUDED — no finding", () => {
+    const doc = {
+        ...shopeeDetailLines(),
+        id: "apify#zen-studio/shopee-product-detail-scraper",
+    } as EndpointDoc;
+    const repins: Repin[] = [];
+    const { findings } = checkPricing(
+        doc,
+        actorBody(shopeeDetailCard),
+        NOW,
+        repins,
+        () => {},
+    );
+    assertEquals(findings, []);
+    assertEquals(repins, []);
+});
+
+Deno.test("checkPricing (shopee): the exclusion is per doc — the same card elsewhere is a coverage finding", () => {
+    const { findings } = checkPricing(
+        shopeeDetailLines(),
+        actorBody(shopeeDetailCard),
+        NOW,
+        [],
+        () => {},
+    );
+    assertEquals(findings.map((finding) => finding.check), ["coverage"]);
+    assert(findings[0].message.includes('"reviews"'), findings[0].message);
+});

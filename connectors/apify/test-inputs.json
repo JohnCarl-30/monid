@@ -181,6 +181,13 @@
             "https://www.linkedin.com/in/satyanadella"
         ]
     },
+    "gio21/shopee-scraper": {
+        "country": "ID",
+        "keywords": [
+            "kebaya"
+        ],
+        "maxItems": 10
+    },
     "harvestapi/linkedin-company-employees": {
         "companies": [
             "https://www.linkedin.com/company/microsoft"
@@ -375,5 +382,20 @@
     },
     "xmiso_scrapers/eu-amazon-sellers-email-leads": {
         "max_results": 2
+    },
+    "zen-studio/shopee-product-detail-scraper": {
+        "startUrls": [
+            {
+                "url": "https://shopee.sg/Razer-Blackshark-V2-X-multi-platform-wired-e-sports-gaming-headset-gam-i.1687421270.55363121938"
+            }
+        ]
+    },
+    "zen-studio/shopee-product-reviews-scraper": {
+        "startUrls": [
+            {
+                "url": "https://shopee.co.id/product-i.42255190.2257643102"
+            }
+        ],
+        "maxReviewsPerProduct": 5
     }
 }

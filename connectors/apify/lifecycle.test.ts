@@ -1,8 +1,9 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertAlmostEquals, assertEquals } from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import {
     assembleUsage,
     flatLines,
+    type Json,
     type RunInput,
     type UsageModel,
 } from "@shared/core";
@@ -162,6 +163,18 @@ const CHAIN_COUNTS: Record<string, Record<string, number>> = {
     // include_metadata false in the input → one videoprocessed per row
     "johnvc/youtubetranscripts": {
         videoprocessed: 2,
+        default_dataset_item: 2,
+    },
+    // a product bills only when its row says listingStatus "available";
+    // the chain rows carry no status → two stored rows, no product
+    "zen-studio/shopee-product-detail-scraper": {
+        result: 0,
+        default_dataset_item: 2,
+    },
+    // a review row carries reviewId; the chain rows do not → two stored
+    // rows, no review
+    "zen-studio/shopee-product-reviews-scraper": {
+        reviews: 0,
         default_dataset_item: 2,
     },
 };
@@ -950,6 +963,182 @@ Deno.test("apify estimates: johnvc D29 gating spot checks (input-switched lines)
         })).evidence,
         { videoprocessed: 0, default_dataset_item: 5, actor_start: 1 },
     );
+});
+
+// ---------------------------------------------------------------------------
+// shopee (issue #140): estimates, binding gates, and per-line settles
+// ---------------------------------------------------------------------------
+
+const SHOPEE_SEARCH = "apify#gio21/shopee-scraper";
+const SHOPEE_DETAIL = "apify#zen-studio/shopee-product-detail-scraper";
+const SHOPEE_REVIEWS = "apify#zen-studio/shopee-product-reviews-scraper";
+
+/** The run-succeeded chain with its dataset items swapped for `rows`. */
+async function settleWithRows(id: string, rows: Json[]) {
+    const fixture = await loadFixture(`${HERE}fixtures/run-succeeded.json`);
+    fixture.calls[fixture.calls.length - 1].res.body = rows;
+    return runEndpoint({
+        unit: await testSealedUnit(id),
+        input: inputFor(id),
+        mode: "replay",
+        fixture,
+    });
+}
+
+/** An input the binding must refuse before anything is priced or sent. */
+async function assertRejected(id: string, body: RunInput["body"]) {
+    let threw = false;
+    try {
+        await estimateFor(id, body);
+    } catch (error) {
+        threw = true;
+        assert(String(error).includes("INVALID_INPUT"), String(error));
+    }
+    assert(threw, `${id}: ${JSON.stringify(body)} must be rejected`);
+}
+
+Deno.test("apify estimates: shopee spot checks", async () => {
+    // search: maxItems IS the product cap — 40 × $0.005 + the start flat
+    const search = await estimateFor(SHOPEE_SEARCH, {
+        keywords: ["kebaya", "batik"],
+        maxItems: 40,
+    });
+    assertEquals(search.evidence, { default_dataset_item: 40, actor_start: 1 });
+    assertAlmostEquals(search.credits.default, 40 * 0.005 + 0.00005, 1e-12);
+    // detail: one product per URL — 3 × ($0.00699 + $0.00001) + the start
+    const detail = await estimateFor(SHOPEE_DETAIL, {
+        startUrls: [
+            { url: "https://shopee.sg/a-i.1.2" },
+            { url: "https://shopee.co.id/b-i.3.4" },
+            { url: "https://shopee.com.br/c-i.5.6" },
+        ],
+    });
+    assertEquals(detail.evidence, {
+        result: 3,
+        default_dataset_item: 3,
+        actor_start: 1,
+    });
+    assertAlmostEquals(
+        detail.credits.default,
+        3 * 0.00699 + 3 * 0.00001 + 0.008,
+        1e-12,
+    );
+    // reviews: the per-URL cap × the URLs — 2 × 50 × ($0.00299 + $0.00001)
+    const reviews = await estimateFor(SHOPEE_REVIEWS, {
+        startUrls: [
+            { url: "https://shopee.sg/a-i.1.2" },
+            { url: "https://shopee.co.id/b-i.3.4" },
+        ],
+        maxReviewsPerProduct: 50,
+    });
+    assertEquals(reviews.evidence, {
+        reviews: 100,
+        default_dataset_item: 100,
+        actor_start: 1,
+    });
+    assertAlmostEquals(
+        reviews.credits.default,
+        100 * 0.00299 + 100 * 0.00001 + 0.008,
+        1e-12,
+    );
+    // an empty batch estimates 0 metered units — only the start flat
+    assertEquals(
+        (await estimateFor(SHOPEE_REVIEWS, { maxReviewsPerProduct: 50 }))
+            .evidence,
+        { reviews: 0, default_dataset_item: 0, actor_start: 1 },
+    );
+});
+
+Deno.test("apify shopee: the limiting knobs and the reviews add-on are gated at the binding", async () => {
+    // search: no maxItems → no deducible estimate; below the actor's floor
+    await assertRejected(SHOPEE_SEARCH, { keywords: ["kebaya"] });
+    await assertRejected(SHOPEE_SEARCH, { keywords: ["kebaya"], maxItems: 5 });
+    // reviews: the cap is required, and the actor's 0 (= full history) is
+    // unbounded, so it is refused
+    await assertRejected(SHOPEE_REVIEWS, {
+        startUrls: [{ url: "https://shopee.sg/a-i.1.2" }],
+    });
+    await assertRejected(SHOPEE_REVIEWS, {
+        startUrls: [{ url: "https://shopee.sg/a-i.1.2" }],
+        maxReviewsPerProduct: 0,
+    });
+    // detail: reviews land in a dataset this endpoint cannot return
+    await assertRejected(SHOPEE_DETAIL, {
+        startUrls: [{ url: "https://shopee.sg/a-i.1.2" }],
+        includeReviews: true,
+    });
+    // …while an explicit false is the same call as omitting it
+    assertEquals(
+        (await estimateFor(SHOPEE_DETAIL, {
+            startUrls: [{ url: "https://shopee.sg/a-i.1.2" }],
+            includeReviews: false,
+        })).evidence,
+        { result: 1, default_dataset_item: 1, actor_start: 1 },
+    );
+});
+
+Deno.test("apify#zen-studio/shopee-product-detail-scraper: only available listings bill the product line", async () => {
+    const settled = await settleWithRows(SHOPEE_DETAIL, [
+        { itemId: 1, shopId: 9, listingStatus: "available", enriched: true },
+        // deep detail missing, the commercial record intact — still billed
+        { itemId: 2, shopId: 9, listingStatus: "available", enriched: false },
+        {
+            itemId: 3,
+            shopId: 9,
+            listingStatus: "unavailable",
+            enriched: false,
+            _warning: "listing is no longer offered",
+        },
+        {
+            itemId: 4,
+            shopId: 9,
+            listingStatus: "unknown",
+            enriched: false,
+            _warning: "could not be retrieved this run",
+        },
+        // a URL the actor could not read: no status at all
+        { url: "https://shopee.sg/not-a-product", _warning: "not a product" },
+    ]);
+    assertEquals(settled.httpStatus, 200);
+    assertEquals(settled.usage.evidence, {
+        result: 2,
+        default_dataset_item: 5,
+        actor_start: 1,
+    });
+    assertAlmostEquals(
+        settled.usage.credits.default,
+        2 * 0.00699 + 5 * 0.00001 + 0.008,
+        1e-12,
+    );
+    assertEquals((settled.output as unknown[]).length, 5);
+});
+
+Deno.test("apify#zen-studio/shopee-product-reviews-scraper: only review rows bill the review line", async () => {
+    const settled = await settleWithRows(SHOPEE_REVIEWS, [
+        { reviewId: 101, itemId: 1, shopId: 9, ratingStar: 5, comment: "ok" },
+        { reviewId: 102, itemId: 1, shopId: 9, ratingStar: 1, comment: "" },
+        { reviewId: 103, itemId: 1, shopId: 9, ratingStar: 4 },
+        { url: "https://shopee.sg/shop/9", _warning: "not a product page" },
+    ]);
+    assertEquals(settled.httpStatus, 200);
+    assertEquals(settled.usage.evidence, {
+        reviews: 3,
+        default_dataset_item: 4,
+        actor_start: 1,
+    });
+    assertAlmostEquals(
+        settled.usage.credits.default,
+        3 * 0.00299 + 4 * 0.00001 + 0.008,
+        1e-12,
+    );
+    // a run that found nothing: the start fee and nothing else
+    const empty = await settleWithRows(SHOPEE_REVIEWS, []);
+    assertEquals(empty.usage.evidence, {
+        reviews: 0,
+        default_dataset_item: 0,
+        actor_start: 1,
+    });
+    assertAlmostEquals(empty.usage.credits.default, 0.008, 1e-12);
 });
 
 // ---------------------------------------------------------------------------

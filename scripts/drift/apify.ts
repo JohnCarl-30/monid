@@ -62,6 +62,13 @@ const EXCLUDED: Record<string, Record<string, string>> = {
             "products search type only returns an error row, so the binding " +
             "rejects it and the line can never fire",
     },
+    "apify#zen-studio/shopee-product-detail-scraper": {
+        "reviews": "the reviews add-on writes to a separate named `reviews` " +
+            "dataset (the actor's own README and input text, 2026-11-24) " +
+            "and the provider lifecycle returns the default dataset only, " +
+            "so the binding pins includeReviews to false and the line can " +
+            "never fire",
+    },
     "apify#apify/facebook-pages-scraper": {
         "page": 'the "Page (Standby API)" event — a same-price twin ' +
             "charged only on the Standby API surface, unreachable via " +

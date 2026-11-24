@@ -162,6 +162,12 @@ export const LEAF_CATEGORIES = defineLeafCategories([
         description: "Shein data: products, prices, and variants.",
     },
     {
+        id: "shopee",
+        displayName: "Shopee",
+        description:
+            "Shopee data: product listings, product details, reviews, and sellers.",
+    },
+    {
         id: "walmart",
         displayName: "Walmart",
         description: "Walmart data: products, reviews, and prices.",
